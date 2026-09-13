@@ -2,6 +2,7 @@
 #include <discovery.h>
 #include <drivers/curtis_e.h>
 #include <drivers/curtis_f.h>
+#include <drivers/dmc.h>
 #include <drivers/sevcon.h>
 #include <logger.h>
 #include <memory.h>
@@ -16,6 +17,8 @@ static Driver *getDriverForNodeName(const char *name, un8 length) {
         return &sevconDriver;
     } else if (length >= 4 && strncmp(name, "AC F", 4) == 0) {
         return &curtisFDriver;
+    } else if (length >= 7 && strstr(name, "Sigma2N") != NULL) {
+        return &dmcDriver;
     }
     // Curtis 123X SE/E controllers do not support SDO 0x1008
 
