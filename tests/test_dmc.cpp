@@ -334,6 +334,29 @@ TEST_F(DmcTest, skipResponseOnDisconnect) {
     EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 0);
 }
 
+// Every request in the read routine times out, so onError disconnects the
+// node on the first one and returns early for the rest.
+TEST_F(DmcTest, readErrorTimeout) {
+    EXPECT_EQ(nodes[0].connected, veFalse);
+    connectToDmcNode();
+    EXPECT_EQ(nodes[0].connected, veTrue);
+
+    this->canMsgSentLog.clear();
+
+    nodes[0].device->driver->readRoutine(&nodes[0]);
+    EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 6);
+
+    while (listCount(canOpenState.pendingSdoRequests) > 0) {
+        canOpenTx();
+        pltGetCount1ms_fake.return_val += 50;
+        canOpenTx();
+    }
+
+    EXPECT_EQ(this->canMsgSentLog.size(), 6);
+    EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 0);
+    EXPECT_EQ(nodes[0].connected, veFalse);
+}
+
 // Motor RPM comes from the DS402 object 0x606C, which is a signed 32 bit
 // value, so a negative speed is sign extended across all four data bytes.
 TEST_F(DmcTest, motorDirection) {
