@@ -41,6 +41,7 @@ add_library(dbus-canopen-motordrive-lib
     ../src/node.c
     ../src/servicemanager.c
     ../src/notification.c
+    ../src/pair.c
 
     ../velib/task/task/platform_init.c
     ../velib/task/task/console_no_arguments.c

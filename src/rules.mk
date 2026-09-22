@@ -9,4 +9,5 @@ SRCS += list.c
 SRCS += memory.c
 SRCS += discovery.c
 SRCS += notification.c
+SRCS += pair.c
 SRCS += platform.c
