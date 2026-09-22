@@ -3,6 +3,7 @@
 #include <localsettings.h>
 #include <logger.h>
 #include <math.h>
+#include <memory.h>
 #include <node.h>
 #include <notification.h>
 #include <stdio.h>
@@ -190,6 +191,73 @@ static void onError(CanOpenPendingSdoRequest *request, CanOpenError error) {
     disconnectFromNode(node->device->nodeId);
 }
 
+static void reportFault(Node *node, un8 faultCode, un32 faultSubcode) {
+    Error *error;
+    char notificationTitle[255];
+    VeStr deviceName;
+
+    error = findError(faultCode);
+    if (error != NULL) {
+        snprintf(notificationTitle, sizeof(notificationTitle), "%s (F%d S%u)",
+                 error->error, faultCode, faultSubcode);
+    } else {
+        snprintf(notificationTitle, sizeof(notificationTitle),
+                 "Unknown fault (F%d S%u)", faultCode, faultSubcode);
+    }
+
+    error("Fault on node %d: %s", node->device->nodeId, notificationTitle);
+    getDeviceDisplayName(node->device, &deviceName);
+    queueNotification(node->device->nodeId, NOTIFICATION_TYPE_ERROR,
+                      notificationTitle, veStrCStr(&deviceName));
+    veStrFree(&deviceName);
+}
+
+static void onFaultCodeResponse(CanOpenPendingSdoRequest *request) {
+    Node *node;
+    DmcContext *context;
+
+    node = (Node *)request->context;
+    if (!node->connected) {
+        return;
+    }
+
+    context = (DmcContext *)node->device->driverContext;
+    context->pendingFaultCode = (un8)request->response.data;
+}
+
+// 0x3840 is read immediately before 0x3841 and the request queue is served in
+// order, so the code belonging to this subcode is already in the context.
+static void onFaultSubcodeResponse(CanOpenPendingSdoRequest *request) {
+    Node *node;
+    DmcContext *context;
+    un8 faultCode;
+    un16 faultSubcode;
+
+    node = (Node *)request->context;
+    if (!node->connected) {
+        return;
+    }
+
+    context = (DmcContext *)node->device->driverContext;
+    faultCode = context->pendingFaultCode;
+    faultSubcode = (un16)request->response.data;
+
+    if (faultCode == context->reportedFaultCode &&
+        faultSubcode == context->reportedFaultSubcode) {
+        return;
+    }
+
+    context->reportedFaultCode = faultCode;
+    context->reportedFaultSubcode = faultSubcode;
+
+    if (faultCode == 0) {
+        // Fault cleared.
+        return;
+    }
+
+    reportFault(node, faultCode, faultSubcode);
+}
+
 static void readRoutine(Node *node) {
     canOpenReadSdoAsync(node->device->nodeId, 0x383f, 0, node,
                         onBatteryVoltageResponse, onError);
@@ -203,6 +271,10 @@ static void readRoutine(Node *node) {
                         onMotorTorqueResponse, onError);
     canOpenReadSdoAsync(node->device->nodeId, 0x3837, 0, node,
                         onControllerTemperatureResponse, onError);
+    canOpenReadSdoAsync(node->device->nodeId, 0x3840, 0, node,
+                        onFaultCodeResponse, onError);
+    canOpenReadSdoAsync(node->device->nodeId, 0x3841, 0, node,
+                        onFaultSubcodeResponse, onError);
 }
 
 static void fastReadRoutine(Node *node) {
@@ -213,13 +285,16 @@ static void fastReadRoutine(Node *node) {
 // EMCY payload, see DMC Advanced CAN Open manual V1.10:
 // bytes 0-1 emergency error code, byte 2 error register, byte 3 DMC fault
 // code, bytes 4-7 DMC fault subcode.
+//
+// Sigma2N firmware V03.03.01 was not observed to send one for the drive
+// inhibit we could provoke, F13. Whether it does for other fault classes is
+// unknown, so this is kept alongside the polled path above and shares the
+// reported-fault state, so the two cannot announce the same fault twice.
 static void onEMCYMessage(Node *node, VeRawCanMsg *message) {
     un16 errorCode;
     un8 faultCode;
     un32 faultSubcode;
-    Error *error;
-    char notificationTitle[255];
-    VeStr deviceName;
+    DmcContext *context;
 
     errorCode = message->mdata[0] | (message->mdata[1] << 8);
     faultCode = message->mdata[3];
@@ -231,28 +306,39 @@ static void onEMCYMessage(Node *node, VeRawCanMsg *message) {
         return;
     }
 
-    error = findError(faultCode);
-    if (error != NULL) {
-        snprintf(notificationTitle, sizeof(notificationTitle), "%s (F%d S%u)",
-                 error->error, faultCode, faultSubcode);
-    } else {
-        snprintf(notificationTitle, sizeof(notificationTitle),
-                 "Unknown fault (F%d S%u)", faultCode, faultSubcode);
+    context = (DmcContext *)node->device->driverContext;
+    if (faultCode == context->reportedFaultCode &&
+        (un16)faultSubcode == context->reportedFaultSubcode) {
+        return;
     }
 
-    error("EMCY from node %d: %s", node->device->nodeId, notificationTitle);
-    getDeviceDisplayName(node->device, &deviceName);
-    queueNotification(node->device->nodeId, NOTIFICATION_TYPE_ERROR,
-                      notificationTitle, veStrCStr(&deviceName));
-    veStrFree(&deviceName);
+    context->reportedFaultCode = faultCode;
+    context->reportedFaultSubcode = (un16)faultSubcode;
+
+    reportFault(node, faultCode, faultSubcode);
 }
+
+static void *createDriverContext(Node *node) {
+    DmcContext *context;
+
+    context = _malloc(sizeof(*context));
+    CHECK_ALLOC(context);
+
+    context->pendingFaultCode = 0;
+    context->reportedFaultCode = 0;
+    context->reportedFaultSubcode = 0;
+
+    return (void *)context;
+}
+
+static void destroyDriverContext(Node *node, void *context) { _free(context); }
 
 Driver dmcDriver = {
     .name = "dmc",
     .productId = VE_PROD_ID_DMC_MOTORDRIVE,
     .readRoutine = readRoutine,
     .fastReadRoutine = fastReadRoutine,
-    .createDriverContext = NULL,
-    .destroyDriverContext = NULL,
+    .createDriverContext = createDriverContext,
+    .destroyDriverContext = destroyDriverContext,
     .onEMCYMessage = onEMCYMessage,
 };

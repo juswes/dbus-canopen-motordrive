@@ -72,6 +72,49 @@ class DmcTest : public CanFixture {
         canOpenRx();
     }
 
+    // One full read cycle with the six measurement objects at fixed values
+    // and a chosen fault code and subcode.
+    void readCycleWithFault(un8 faultCode, un16 faultSubcode) {
+        std::vector<VeRawCanMsg> queue;
+        nodes[0].device->driver->readRoutine(&nodes[0]);
+        queue.push_back(
+            {.canId = 0x581,
+             .length = 8,
+             .mdata = {0x4B, 0x3F, 0x38, 0x00, 0x0D, 0x02, 0x00, 0x00}});
+        queue.push_back(
+            {.canId = 0x581,
+             .length = 8,
+             .mdata = {0x4B, 0x3E, 0x38, 0x00, 0x64, 0x00, 0x00, 0x00}});
+        queue.push_back(
+            {.canId = 0x581,
+             .length = 8,
+             .mdata = {0x43, 0x6C, 0x60, 0x00, 0xF4, 0x01, 0x00, 0x00}});
+        queue.push_back(
+            {.canId = 0x581,
+             .length = 8,
+             .mdata = {0x4F, 0x36, 0x38, 0x00, 0x4C, 0x00, 0x00, 0x00}});
+        queue.push_back(
+            {.canId = 0x581,
+             .length = 8,
+             .mdata = {0x4B, 0x1C, 0x41, 0x00, 0x20, 0x03, 0x00, 0x00}});
+        queue.push_back(
+            {.canId = 0x581,
+             .length = 8,
+             .mdata = {0x4F, 0x37, 0x38, 0x00, 0x51, 0x00, 0x00, 0x00}});
+        queue.push_back(
+            {.canId = 0x581,
+             .length = 8,
+             .mdata = {0x4F, 0x40, 0x38, 0x00, faultCode, 0x00, 0x00, 0x00}});
+        queue.push_back(
+            {.canId = 0x581,
+             .length = 8,
+             .mdata = {0x4B, 0x41, 0x38, 0x00, (un8)(faultSubcode & 0xFF),
+                       (un8)(faultSubcode >> 8), 0x00, 0x00}});
+        drainQueue(queue);
+        pltGetCount1ms_fake.return_val += NOTIFICATION_INJECTION_DELAY_MS;
+        processPendingNotifications();
+    }
+
     void drainQueue(std::vector<VeRawCanMsg> &queue) {
         while (!queue.empty()) {
             this->canMsgReadQueue.push_back(queue.front());
@@ -92,7 +135,7 @@ TEST_F(DmcTest, readSuccess) {
     this->canMsgSentLog.clear();
 
     nodes[0].device->driver->readRoutine(&nodes[0]);
-    EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 6);
+    EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 8);
 
     std::vector<VeRawCanMsg> queue;
     // Battery Voltage, 525 = 52.5V
@@ -126,9 +169,20 @@ TEST_F(DmcTest, readSuccess) {
          .length = 8,
          .mdata = {0x4F, 0x37, 0x38, 0x00, 0x51, 0x00, 0x00, 0x00}});
 
+    // Fault code 0, no fault
+    queue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x4F, 0x40, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00}});
+    // Fault subcode 0
+    queue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x4B, 0x41, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00}});
+
     drainQueue(queue);
 
-    EXPECT_EQ(this->canMsgSentLog.size(), 6);
+    EXPECT_EQ(this->canMsgSentLog.size(), 8);
 
     message = this->canMsgSentLog.at(0);
     EXPECT_EQ(message.canId, 0x601);
@@ -233,6 +287,17 @@ TEST_F(DmcTest, regenerativeBraking) {
          .length = 8,
          .mdata = {0x4F, 0x37, 0x38, 0x00, 0x51, 0x00, 0x00, 0x00}});
 
+    // Fault code 0, no fault
+    queue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x4F, 0x40, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00}});
+    // Fault subcode 0
+    queue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x4B, 0x41, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00}});
+
     drainQueue(queue);
 
     EXPECT_FLOAT_EQ(nodes[0].device->current->variant.value.Float, -22.5F);
@@ -283,6 +348,17 @@ TEST_F(DmcTest, subZeroTemperatures) {
          .length = 8,
          .mdata = {0x4F, 0x37, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00}});
 
+    // Fault code 0, no fault
+    queue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x4F, 0x40, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00}});
+    // Fault subcode 0
+    queue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x4B, 0x41, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00}});
+
     drainQueue(queue);
 
     EXPECT_EQ(nodes[0].device->motorTemperature->variant.value.SN16, -10);
@@ -297,7 +373,7 @@ TEST_F(DmcTest, skipResponseOnDisconnect) {
     this->canMsgSentLog.clear();
 
     nodes[0].device->driver->readRoutine(&nodes[0]);
-    EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 6);
+    EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 8);
 
     std::vector<VeRawCanMsg> queue;
     queue.push_back(
@@ -327,9 +403,20 @@ TEST_F(DmcTest, skipResponseOnDisconnect) {
 
     disconnectFromNode(1);
 
+    // Fault code 0, no fault
+    queue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x4F, 0x40, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00}});
+    // Fault subcode 0
+    queue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x4B, 0x41, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00}});
+
     drainQueue(queue);
 
-    EXPECT_EQ(this->canMsgSentLog.size(), 6);
+    EXPECT_EQ(this->canMsgSentLog.size(), 8);
 
     EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 0);
 }
@@ -344,7 +431,7 @@ TEST_F(DmcTest, readErrorTimeout) {
     this->canMsgSentLog.clear();
 
     nodes[0].device->driver->readRoutine(&nodes[0]);
-    EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 6);
+    EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 8);
 
     while (listCount(canOpenState.pendingSdoRequests) > 0) {
         canOpenTx();
@@ -352,7 +439,7 @@ TEST_F(DmcTest, readErrorTimeout) {
         canOpenTx();
     }
 
-    EXPECT_EQ(this->canMsgSentLog.size(), 6);
+    EXPECT_EQ(this->canMsgSentLog.size(), 8);
     EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 0);
     EXPECT_EQ(nodes[0].connected, veFalse);
 }
@@ -435,6 +522,48 @@ TEST_F(DmcTest, motorDirection) {
 
 // EMCY payload: bytes 0-1 emergency error code, byte 2 error register,
 // byte 3 DMC fault code, bytes 4-7 DMC fault subcode.
+// Faults are polled because EMCY alone is not enough: it is edge triggered, so
+// a fault standing when the driver starts is never seen. On a bench pair,
+// provoking F13 with the throttle held forward at power up put F13 S2 in
+// 0x3840 and 0x3841 for 23 seconds while 0x081 stayed silent throughout.
+TEST_F(DmcTest, polledFault) {
+    connectToDmcNode();
+    this->canMsgSentLog.clear();
+    EXPECT_EQ(injectPlatformNotification_fake.call_count, 0);
+
+    // No fault, nothing reported.
+    readCycleWithFault(0, 0);
+    EXPECT_EQ(injectPlatformNotification_fake.call_count, 0);
+
+    // F13 S2, accelerator more than 50% at power up.
+    readCycleWithFault(13, 2);
+    EXPECT_EQ(injectPlatformNotification_fake.call_count, 1);
+    EXPECT_EQ(injectPlatformNotification_fake.arg0_val,
+              NOTIFICATION_TYPE_ERROR);
+    EXPECT_STREQ(lastTitle, "Accelerator more than 50% at power up (F13 S2)");
+
+    // The same fault still standing must not be announced again.
+    readCycleWithFault(13, 2);
+    readCycleWithFault(13, 2);
+    EXPECT_EQ(injectPlatformNotification_fake.call_count, 1);
+
+    // A different subcode is a different fault.
+    readCycleWithFault(13, 3);
+    EXPECT_EQ(injectPlatformNotification_fake.call_count, 2);
+    EXPECT_STREQ(lastTitle, "Accelerator more than 50% at power up (F13 S3)");
+
+    // Cleared, and then raised again, which must report a second time.
+    readCycleWithFault(0, 0);
+    EXPECT_EQ(injectPlatformNotification_fake.call_count, 2);
+    readCycleWithFault(13, 2);
+    EXPECT_EQ(injectPlatformNotification_fake.call_count, 3);
+
+    // An unknown code still reports, with the raw numbers.
+    readCycleWithFault(200, 7);
+    EXPECT_EQ(injectPlatformNotification_fake.call_count, 4);
+    EXPECT_STREQ(lastTitle, "Unknown fault (F200 S7)");
+}
+
 TEST_F(DmcTest, emcyMessage) {
     canOpenRegisterEmcyHandler(nodesEmcyHandler, NULL);
     EXPECT_EQ(injectPlatformNotification_fake.call_count, 0);
