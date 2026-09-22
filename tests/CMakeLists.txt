@@ -98,6 +98,7 @@ add_executable(dbus-canopen-motordrive-test
     test_discovery.cpp
     test_servicemanager.cpp
     test_node.cpp
+    test_pair.cpp
     test_sevcon.cpp
     test_curtis_f.cpp
     test_curtis_e.cpp

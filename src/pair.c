@@ -197,21 +197,30 @@ static void pairsFromSetting(void) {
     }
 }
 
-// A pair outlives one of its halves dropping off the bus. Rebuilding purely
-// from connected nodes would quietly turn the survivor into a standalone drive
-// reporting half the power, which is the whole failure this feature exists to
-// avoid. The entry is only dropped once neither half is there.
-static void pruneDeadPairs(void) {
+// Only a pair with exactly one member present survives an update. That half
+// has dropped off the bus, and rebuilding from connected nodes would quietly
+// turn the survivor into a standalone drive reporting half the power, which is
+// the failure this feature exists to avoid.
+//
+// Everything else is cleared and re-derived, so detection does not depend on
+// the order controllers happened to connect in. Without that, two controllers
+// would pair as soon as they appeared and a third arriving later could not
+// undo it.
+static void prunePairs(void) {
     size_t i;
+    veBool primaryHere;
+    veBool secondaryHere;
 
     for (i = 0; i < MAX_DRIVE_PAIRS; i += 1) {
         if (drivePairs[i].primaryNodeId == 0) {
             continue;
         }
-        if (connectedDevice(drivePairs[i].primaryNodeId) == NULL &&
-            connectedDevice(drivePairs[i].secondaryNodeId) == NULL) {
-            memset(&drivePairs[i], 0, sizeof(drivePairs[i]));
+        primaryHere = connectedDevice(drivePairs[i].primaryNodeId) != NULL;
+        secondaryHere = connectedDevice(drivePairs[i].secondaryNodeId) != NULL;
+        if (primaryHere != secondaryHere) {
+            continue;
         }
+        memset(&drivePairs[i], 0, sizeof(drivePairs[i]));
     }
 }
 
@@ -222,7 +231,7 @@ void updateDrivePairs(void) {
         return;
     }
 
-    pruneDeadPairs();
+    prunePairs();
 
     veItemLocalValue(combinedDriveAuto, &v);
     if (veVariantIsValid(&v) && v.value.SN32 == 0) {
