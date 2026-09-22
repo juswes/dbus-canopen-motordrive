@@ -37,7 +37,18 @@ typedef struct _DrivePair {
     un8 primaryNodeId;
     un8 secondaryNodeId;
     un8 membersRead;
+    veBool degradedReported;
+    veBool divergenceReported;
 } DrivePair;
+
+/**
+ * How far the two halves may disagree on speed before it is worth saying so.
+ * They turn one shaft, so in normal running they agree closely: the bench pair
+ * never differed by more than 6 RPM at up to 1,408 RPM. The floor keeps small
+ * absolute differences quiet near standstill.
+ */
+#define RPM_DIVERGENCE_PERCENT 10
+#define RPM_DIVERGENCE_FLOOR 50
 
 /**
  * Creates the CombinedDriveAuto and CombinedDrives settings under the given
@@ -76,5 +87,16 @@ void updateDrivePairs(void);
  * are replaced by the total.
  */
 void aggregatePair(DrivePair *pair);
+
+/** True when one half of the pair is no longer on the bus. */
+veBool isPairDegraded(DrivePair *pair);
+
+/**
+ * Marks the drive's readings invalid. Half a combined drive must not report
+ * its own share as though it were the whole, which is the mistake the
+ * systemcalc motordrive delegate already makes by silently using whichever
+ * service has the lowest device instance.
+ */
+void invalidatePair(DrivePair *pair);
 
 #endif

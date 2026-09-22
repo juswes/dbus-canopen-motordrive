@@ -203,6 +203,22 @@ static void onReadRoutineComplete(CanOpenPendingSdoRequest *request) {
         return;
     }
 
+    // With one half gone there is nothing to wait for, and the survivor must
+    // not keep publishing its own share as though it were the whole drive.
+    // If the missing half is the primary, nothing is published at all: the
+    // secondary follows torque and has no speed reference of its own, so its
+    // readings would be misleading rather than merely incomplete.
+    if (isPairDegraded(pair)) {
+        primary = deviceForNode(pair->primaryNodeId);
+        if (primary != NULL) {
+            exportDevice(primary);
+            invalidatePair(pair);
+            veItemSendPendingChanges(primary->root);
+        }
+        clearPairMembersRead(pair);
+        return;
+    }
+
     // Hold the publish until both halves have reported, so the two samples
     // come from the same cycle. Nodes are read in ascending id order, so
     // publishing on the primary's own callback would always combine the

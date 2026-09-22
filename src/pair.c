@@ -2,7 +2,9 @@
 #include <localsettings.h>
 #include <logger.h>
 #include <node.h>
+#include <notification.h>
 #include <pair.h>
+#include <stdio.h>
 #include <string.h>
 #include <velib/types/ve_item_def.h>
 #include <velib/types/ve_values.h>
@@ -127,6 +129,8 @@ static veBool addPair(un8 primaryNodeId, un8 secondaryNodeId) {
         drivePairs[i].primaryNodeId = primaryNodeId;
         drivePairs[i].secondaryNodeId = secondaryNodeId;
         drivePairs[i].membersRead = 0;
+        drivePairs[i].degradedReported = veFalse;
+        drivePairs[i].divergenceReported = veFalse;
         info("combined drive: node %u primary, node %u secondary",
              primaryNodeId, secondaryNodeId);
         return veTrue;
@@ -193,14 +197,32 @@ static void pairsFromSetting(void) {
     }
 }
 
+// A pair outlives one of its halves dropping off the bus. Rebuilding purely
+// from connected nodes would quietly turn the survivor into a standalone drive
+// reporting half the power, which is the whole failure this feature exists to
+// avoid. The entry is only dropped once neither half is there.
+static void pruneDeadPairs(void) {
+    size_t i;
+
+    for (i = 0; i < MAX_DRIVE_PAIRS; i += 1) {
+        if (drivePairs[i].primaryNodeId == 0) {
+            continue;
+        }
+        if (connectedDevice(drivePairs[i].primaryNodeId) == NULL &&
+            connectedDevice(drivePairs[i].secondaryNodeId) == NULL) {
+            memset(&drivePairs[i], 0, sizeof(drivePairs[i]));
+        }
+    }
+}
+
 void updateDrivePairs(void) {
     VeVariant v;
-
-    memset(drivePairs, 0, sizeof(drivePairs));
 
     if (combinedDrives == NULL) {
         return;
     }
+
+    pruneDeadPairs();
 
     veItemLocalValue(combinedDriveAuto, &v);
     if (veVariantIsValid(&v) && v.value.SN32 == 0) {
@@ -211,7 +233,12 @@ void updateDrivePairs(void) {
     detectPairs();
 }
 
-static void onCombinedDriveSettingChanged(VeItem *item) { updateDrivePairs(); }
+// Changing how pairing is configured starts from nothing, unlike the ordinary
+// update which preserves pairs whose members are temporarily absent.
+static void onCombinedDriveSettingChanged(VeItem *item) {
+    memset(drivePairs, 0, sizeof(drivePairs));
+    updateDrivePairs();
+}
 
 DrivePair *drivePairForNode(un8 nodeId) {
     size_t i;
@@ -260,6 +287,52 @@ void forgetNodeModeOfOperation(un8 nodeId) {
     }
     nodeModes[nodeId - 1] = 0;
     updateDrivePairs();
+}
+
+veBool isPairDegraded(DrivePair *pair) {
+    veBool primaryHere;
+    veBool secondaryHere;
+
+    primaryHere = connectedDevice(pair->primaryNodeId) != NULL;
+    secondaryHere = connectedDevice(pair->secondaryNodeId) != NULL;
+    return primaryHere != secondaryHere ? veTrue : veFalse;
+}
+
+void invalidatePair(DrivePair *pair) {
+    Device *primary;
+    VeVariant v;
+    VeStr name;
+    char title[255];
+
+    primary = connectedDevice(pair->primaryNodeId);
+    if (primary == NULL) {
+        return;
+    }
+
+    veItemOwnerSet(primary->current, veVariantInvalidType(&v, VE_FLOAT));
+    veItemOwnerSet(primary->power, veVariantInvalidType(&v, VE_SN32));
+    veItemOwnerSet(primary->motorTorque, veVariantInvalidType(&v, VE_UN16));
+    veItemOwnerSet(primary->motorRpm, veVariantInvalidType(&v, VE_UN16));
+    veItemOwnerSet(primary->motorDirection, veVariantInvalidType(&v, VE_UN8));
+    veItemOwnerSet(primary->motorTemperature,
+                   veVariantInvalidType(&v, VE_SN16));
+    veItemOwnerSet(primary->controllerTemperature,
+                   veVariantInvalidType(&v, VE_SN16));
+
+    if (pair->degradedReported) {
+        return;
+    }
+    pair->degradedReported = veTrue;
+
+    snprintf(title, sizeof(title),
+             "Controller %u of the combined drive is not "
+             "responding",
+             pair->secondaryNodeId);
+    error("combined drive degraded: node %u is missing", pair->secondaryNodeId);
+    getDeviceDisplayName(primary, &name);
+    queueNotification(pair->primaryNodeId, NOTIFICATION_TYPE_ERROR, title,
+                      veStrCStr(&name));
+    veStrFree(&name);
 }
 
 void drivePairsInit(VeItem *root, const char *settingsPrefix) {
@@ -313,17 +386,48 @@ static void aggregateCurrentAndPower(Device *primary, Device *secondary) {
 // is the drive's speed. Averaging would only blur a divergence, which is the
 // one thing here worth noticing: on the bench pair the two never differed by
 // more than 6 RPM at up to 1,408 RPM.
-static void aggregateSpeed(Device *primary, Device *secondary) {
+static void aggregateSpeed(DrivePair *pair, Device *primary,
+                           Device *secondary) {
     VeVariant v;
+    VeStr name;
+    char title[255];
     un16 rpmA;
     un16 rpmB;
+    un16 difference;
+    un32 limit;
 
-    if (readUn16(primary->motorRpm, &rpmA)) {
-        setIfPresent(primary->memberRpm[0], veVariantUn16(&v, rpmA));
+    if (!readUn16(primary->motorRpm, &rpmA) ||
+        !readUn16(secondary->motorRpm, &rpmB)) {
+        return;
     }
-    if (readUn16(secondary->motorRpm, &rpmB)) {
-        setIfPresent(primary->memberRpm[1], veVariantUn16(&v, rpmB));
+
+    setIfPresent(primary->memberRpm[0], veVariantUn16(&v, rpmA));
+    setIfPresent(primary->memberRpm[1], veVariantUn16(&v, rpmB));
+
+    difference = rpmA > rpmB ? rpmA - rpmB : rpmB - rpmA;
+    limit = (un32)rpmA * RPM_DIVERGENCE_PERCENT / 100;
+    if (limit < RPM_DIVERGENCE_FLOOR) {
+        limit = RPM_DIVERGENCE_FLOOR;
     }
+
+    if (difference <= limit) {
+        pair->divergenceReported = veFalse;
+        return;
+    }
+    if (pair->divergenceReported) {
+        return;
+    }
+    pair->divergenceReported = veTrue;
+
+    snprintf(title, sizeof(title),
+             "Combined drive halves disagree on speed, %u and %u RPM", rpmA,
+             rpmB);
+    error("combined drive divergence: node %u at %u RPM, node %u at %u RPM",
+          pair->primaryNodeId, rpmA, pair->secondaryNodeId, rpmB);
+    getDeviceDisplayName(primary, &name);
+    queueNotification(pair->primaryNodeId, NOTIFICATION_TYPE_ERROR, title,
+                      veStrCStr(&name));
+    veStrFree(&name);
 }
 
 // One motor and two inverters. The hottest winding and the hotter inverter are
@@ -379,8 +483,11 @@ void aggregatePair(DrivePair *pair) {
         return;
     }
 
+    // Both halves are here, so a previous absence has been made good.
+    pair->degradedReported = veFalse;
+
     aggregateCurrentAndPower(primary, secondary);
-    aggregateSpeed(primary, secondary);
+    aggregateSpeed(pair, primary, secondary);
     aggregateTemperatures(primary, secondary);
     aggregateTorque(primary, secondary);
 
