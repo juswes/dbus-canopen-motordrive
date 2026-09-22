@@ -11,6 +11,12 @@ typedef struct _DrivePair DrivePair;
  * opposite of the dual-drive case where two independent motors are deliberately
  * shown separately.
  *
+ * Deliberately two, not N. A 6-phase motor is two three-phase winding sets,
+ * and DMC's firmware speaks only of dual motors across its whole object
+ * dictionary. Higher phase counts exist and would want more, but the paths
+ * below are already indexed, so widening this later is contained. Note that
+ * isPairDegraded assumes two and would become "any member missing".
+ *
  * Only the primary is exported on D-Bus. The secondary keeps its own Device
  * and item tree, which its driver writes into exactly as it would otherwise,
  * but that tree is never published. Once both members have completed a read

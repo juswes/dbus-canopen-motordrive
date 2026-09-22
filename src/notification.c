@@ -3,7 +3,9 @@
 #include <memory.h>
 #include <node.h>
 #include <notification.h>
+#include <pair.h>
 #include <platform.h>
+#include <stdio.h>
 #include <string.h>
 #include <velib/utils/ve_timer.h>
 
@@ -14,6 +16,18 @@ void notificationsInit() { pendingNotifications = listCreate(); }
 void queueNotification(un8 nodeId, NotificationType type, const char *title,
                        const char *description) {
     PendingNotification *notification;
+    char combinedTitle[255];
+
+    // Both halves of a combined drive appear as one device, so a fault has to
+    // say which controller raised it. The node id rather than an index,
+    // because that is what the installer sees when scanning the bus, and
+    // because the published detail paths are zero based while people count
+    // controllers from one.
+    if (drivePairForNode(nodeId) != NULL) {
+        snprintf(combinedTitle, sizeof(combinedTitle), "%s [node %u]", title,
+                 nodeId);
+        title = combinedTitle;
+    }
 
     notification = _malloc(sizeof(PendingNotification));
     CHECK_ALLOC(notification);

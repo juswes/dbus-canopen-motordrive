@@ -351,3 +351,28 @@ TEST_F(PairTest, forgetsThePairOnceNeitherHalfIsThere) {
     EXPECT_EQ(drivePairForNode(1), nullptr);
     EXPECT_EQ(drivePairForNode(2), nullptr);
 }
+
+TEST_F(PairTest, faultsSayWhichControllerRaisedThem) {
+    connectPair();
+
+    queueNotification(2, NOTIFICATION_TYPE_ERROR,
+                      "Motor temperature high (F5 S0)", "Drive");
+    flushNotifications();
+    EXPECT_EQ(injectPlatformNotification_fake.call_count, 1);
+    EXPECT_STREQ(lastTitle, "Motor temperature high (F5 S0) [node 2]");
+
+    queueNotification(1, NOTIFICATION_TYPE_ERROR, "Controller temperature high",
+                      "Drive");
+    flushNotifications();
+    EXPECT_STREQ(lastTitle, "Controller temperature high [node 1]");
+}
+
+TEST_F(PairTest, faultsFromAStandaloneDriveAreUnchanged) {
+    connectNode(1, DS402_MODE_PROFILE_VELOCITY);
+    exportDevice(device(1));
+
+    queueNotification(1, NOTIFICATION_TYPE_ERROR, "Motor stall protection",
+                      "Drive");
+    flushNotifications();
+    EXPECT_STREQ(lastTitle, "Motor stall protection");
+}
