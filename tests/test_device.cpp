@@ -47,6 +47,19 @@ TEST_F(DeviceTest, init) {
 
     createDevice(&device, nodeId, serialNumber);
 
+    // The tree exists but is private until exported, and no device instance
+    // has been claimed yet.
+    EXPECT_EQ(device.exported, veFalse);
+    EXPECT_EQ(veDbusGetVrmDeviceInstanceExt_fake.call_count, 0);
+    EXPECT_EQ(veDbusChangeName_fake.call_count, 0);
+
+    exportDevice(&device);
+    EXPECT_EQ(device.exported, veTrue);
+
+    // Exporting twice must not claim a second device instance.
+    exportDevice(&device);
+    EXPECT_EQ(veDbusGetVrmDeviceInstanceExt_fake.call_count, 1);
+
     EXPECT_EQ(device.nodeId, nodeId);
     EXPECT_EQ(device.serialNumber, serialNumber);
     EXPECT_STREQ(device.identifier, "Fake_Gateway_DummyDriver_12345678");
@@ -188,7 +201,7 @@ TEST_F(DeviceTest, failureToConnectToDbus) {
     veDbusConnectString_fake.return_val = NULL;
 
     ASSERT_EXIT(createDevice(&device, nodeId, serialNumber);
-                , ::testing::ExitedWithCode(1), "");
+                exportDevice(&device);, ::testing::ExitedWithCode(1), "");
 }
 
 TEST_F(DeviceTest, failureToGetVrmInstance) {
@@ -203,7 +216,7 @@ TEST_F(DeviceTest, failureToGetVrmInstance) {
     veDbusGetVrmDeviceInstanceExt_fake.return_val = -1;
 
     ASSERT_EXIT(createDevice(&device, nodeId, serialNumber);
-                , ::testing::ExitedWithCode(2), "");
+                exportDevice(&device);, ::testing::ExitedWithCode(2), "");
 }
 
 TEST_F(DeviceTest, failureToRegisterDbusServiceName) {
@@ -218,5 +231,5 @@ TEST_F(DeviceTest, failureToRegisterDbusServiceName) {
     veDbusChangeName_fake.return_val = veFalse;
 
     ASSERT_EXIT(createDevice(&device, nodeId, serialNumber);
-                , ::testing::ExitedWithCode(3), "");
+                exportDevice(&device);, ::testing::ExitedWithCode(3), "");
 }

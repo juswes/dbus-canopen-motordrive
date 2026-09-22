@@ -13,6 +13,16 @@ typedef struct _Device Device;
 typedef struct _Device {
     un8 nodeId;
 
+    /**
+     * Whether this device has been published on D-Bus. Registration is
+     * deliberately not done at creation time: a combined drive is only
+     * recognised once both of its controllers have connected, and connections
+     * complete one at a time. Registering early and withdrawing later would
+     * also strand a VRM device instance, since those are allocated from
+     * persistent settings and keyed by identifier.
+     */
+    veBool exported;
+
     struct VeDbus *dbus;
 
     char identifier[64];
@@ -36,7 +46,18 @@ typedef struct _Device {
 } Device;
 
 void getDeviceDisplayName(Device *device, VeStr *out);
+
+/** Builds the identifier and the local item tree. Touches no bus. */
 void createDevice(Device *device, un8 nodeId, un32 serialNumber);
+
+/**
+ * Claims a device instance and publishes the tree. Until this is called the
+ * tree exists but is private, which is what a combined drive's secondary
+ * needs: its driver writes into it exactly as usual and nobody sees it.
+ * Doing this twice is a no-op.
+ */
+void exportDevice(Device *device);
+
 void destroyDevice(Device *device);
 
 #endif

@@ -18,6 +18,7 @@ static void finalizeConnection(ConnectionAttempt *attempt, un32 serialNumber) {
     node->device->driver = attempt->driver;
 
     createDevice(node->device, attempt->nodeId, serialNumber);
+    exportDevice(node->device);
     node->connected = veTrue;
     if (node->device->driver->createDriverContext != NULL) {
         node->device->driverContext =

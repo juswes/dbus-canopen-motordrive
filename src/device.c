@@ -78,8 +78,6 @@ void createDbusTree(Device *device) {
 
     device->root = veItemGetOrCreateUid(veValueTree(), device->identifier);
 
-    veItemCreateBasic(device->root, "DeviceInstance",
-                      veVariantUn32(&v, device->deviceInstance));
     veItemCreateBasic(device->root, "ProductId",
                       veVariantUn16(&v, device->driver->productId));
     veItemCreateBasic(
@@ -132,8 +130,6 @@ void createDbusTree(Device *device) {
     device->customName = veItemCreateSettingsProxy(
         localSettings, settingsPath, device->root, "CustomName", veVariantFmt,
         &veUnitNone, &customNameType);
-
-    veDbusItemInit(device->dbus, device->root);
 }
 
 void getDeviceDisplayName(Device *device, VeStr *out) {
@@ -152,16 +148,34 @@ void getDeviceDisplayName(Device *device, VeStr *out) {
 void createDevice(Device *device, un8 nodeId, un32 serialNumber) {
     device->nodeId = nodeId;
     device->serialNumber = serialNumber;
+    device->exported = veFalse;
+
+    createDeviceIdentifier(device);
+    createDbusTree(device);
+}
+
+void exportDevice(Device *device) {
+    VeVariant v;
+
+    if (device->exported) {
+        return;
+    }
 
     connectToDbus(device);
-    createDeviceIdentifier(device);
     getVrmDeviceInstance(device);
-    createDbusTree(device);
+    veItemCreateBasic(device->root, "DeviceInstance",
+                      veVariantUn32(&v, device->deviceInstance));
+    veDbusItemInit(device->dbus, device->root);
     registerDbusServiceName(device);
+
+    device->exported = veTrue;
 }
 
 void destroyDevice(Device *device) {
-    veDbusDisconnect(device->dbus);
+    if (device->exported) {
+        veDbusDisconnect(device->dbus);
+        device->exported = veFalse;
+    }
     device->dbus = NULL;
     veItemDeleteBranch(device->root);
     device->root = NULL;
