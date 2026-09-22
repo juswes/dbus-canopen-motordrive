@@ -53,11 +53,27 @@ static void onCurtisModelNumberError(CanOpenPendingSdoRequest *request,
     onError((DiscoveryContext *)request->context);
 }
 
+static void onDmcProductCodeResponse(CanOpenPendingSdoRequest *request) {
+    if (request->response.data == DMC_SIGMA2N_PRODUCT_CODE) {
+        onSuccess((DiscoveryContext *)request->context, &dmcDriver);
+    } else {
+        onError((DiscoveryContext *)request->context);
+    }
+}
+
+static void onDmcProductCodeError(CanOpenPendingSdoRequest *request,
+                                  CanOpenError error) {
+    onError((DiscoveryContext *)request->context);
+}
+
 static void onVendorIdResponse(CanOpenPendingSdoRequest *request) {
     if (request->response.data == CURTIS_VENDOR_ID) {
         canOpenReadSdoAsync(request->nodeId, 0x3464, 0, request->context,
                             onCurtisModelNumberResponse,
                             onCurtisModelNumberError);
+    } else if (request->response.data == DMC_VENDOR_ID) {
+        canOpenReadSdoAsync(request->nodeId, 0x1018, 2, request->context,
+                            onDmcProductCodeResponse, onDmcProductCodeError);
     } else {
         onError((DiscoveryContext *)request->context);
     }
@@ -84,8 +100,10 @@ static void onProductNameSuccess(CanOpenPendingSdoRequest *request) {
 
 static void onProductNameError(CanOpenPendingSdoRequest *request,
                                CanOpenError error) {
-    // Some controllers do not support reading the product name. (e.g. Curtis
-    // 123X SE/E). Falling back to reading the vendor ID.
+    // Some controllers do not support reading the product name. Curtis 123X
+    // SE/E do not implement 0x1008 at all, and DMC Sigma2N firmware V03.03.01
+    // announces a segmented upload of 0x1008 and then aborts every segment
+    // request with 0x06020000. Falling back to reading the vendor ID.
     if (error != SDO_READ_ERROR_TIMEOUT) {
         canOpenReadSdoAsync(request->nodeId, 0x1018, 1, request->context,
                             onVendorIdResponse, onVendorIdError);
