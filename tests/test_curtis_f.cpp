@@ -63,6 +63,14 @@ TEST_F(CurtisFTest, readSuccess) {
          .length = 8,
          .mdata = {0x42, 0x18, 0x10, 0x04, 0x01, 0x00, 0x00, 0x00}});
     canOpenRx();
+    // 0x6061 modes of operation, which this controller does not implement.
+    // Nothing depends on the answer; it only decides combined drive pairing.
+    canOpenTx();
+    this->canMsgReadQueue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x80, 0x61, 0x60, 0x00, 0x00, 0x00, 0x02, 0x06}});
+    canOpenRx();
     EXPECT_EQ(nodes[0].connected, veTrue);
 
     this->canMsgSentLog.clear();
@@ -203,6 +211,14 @@ TEST_F(CurtisFTest, readSuccessNegativeValues) {
          .length = 8,
          .mdata = {0x42, 0x18, 0x10, 0x04, 0x01, 0x00, 0x00, 0x00}});
     canOpenRx();
+    // 0x6061 modes of operation, which this controller does not implement.
+    // Nothing depends on the answer; it only decides combined drive pairing.
+    canOpenTx();
+    this->canMsgReadQueue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x80, 0x61, 0x60, 0x00, 0x00, 0x00, 0x02, 0x06}});
+    canOpenRx();
     EXPECT_EQ(nodes[0].connected, veTrue);
 
     this->canMsgSentLog.clear();
@@ -281,6 +297,14 @@ TEST_F(CurtisFTest, skipResponseOnDisconnect) {
          .length = 8,
          .mdata = {0x42, 0x18, 0x10, 0x04, 0x01, 0x00, 0x00, 0x00}});
     canOpenRx();
+    // 0x6061 modes of operation, which this controller does not implement.
+    // Nothing depends on the answer; it only decides combined drive pairing.
+    canOpenTx();
+    this->canMsgReadQueue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x80, 0x61, 0x60, 0x00, 0x00, 0x00, 0x02, 0x06}});
+    canOpenRx();
     EXPECT_EQ(nodes[0].connected, veTrue);
 
     this->canMsgSentLog.clear();
@@ -353,6 +377,14 @@ TEST_F(CurtisFTest, readErrorTimeout) {
          .length = 8,
          .mdata = {0x42, 0x18, 0x10, 0x04, 0x01, 0x00, 0x00, 0x00}});
     canOpenRx();
+    // 0x6061 modes of operation, which this controller does not implement.
+    // Nothing depends on the answer; it only decides combined drive pairing.
+    canOpenTx();
+    this->canMsgReadQueue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x80, 0x61, 0x60, 0x00, 0x00, 0x00, 0x02, 0x06}});
+    canOpenRx();
     EXPECT_EQ(nodes[0].connected, veTrue);
 
     this->canMsgSentLog.clear();
@@ -386,6 +418,14 @@ TEST_F(CurtisFTest, readSwapMotorDirectionOnce) {
          .length = 8,
          .mdata = {0x42, 0x18, 0x10, 0x04, 0x01, 0x00, 0x00, 0x00}});
     canOpenRx();
+    // 0x6061 modes of operation, which this controller does not implement.
+    // Nothing depends on the answer; it only decides combined drive pairing.
+    canOpenTx();
+    this->canMsgReadQueue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x80, 0x61, 0x60, 0x00, 0x00, 0x00, 0x02, 0x06}});
+    canOpenRx();
     EXPECT_EQ(nodes[0].connected, veTrue);
 
     ((CurtisFContext *)nodes[0].device->driverContext)->swapMotorDirection = 1;
@@ -409,6 +449,14 @@ TEST_F(CurtisFTest, motorDirection) {
         {.canId = 0x581,
          .length = 8,
          .mdata = {0x42, 0x18, 0x10, 0x04, 0x01, 0x00, 0x00, 0x00}});
+    canOpenRx();
+    // 0x6061 modes of operation, which this controller does not implement.
+    // Nothing depends on the answer; it only decides combined drive pairing.
+    canOpenTx();
+    this->canMsgReadQueue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x80, 0x61, 0x60, 0x00, 0x00, 0x00, 0x02, 0x06}});
     canOpenRx();
     EXPECT_EQ(nodes[0].connected, veTrue);
 
@@ -523,6 +571,14 @@ TEST_F(CurtisFTest, emcyMessage) {
         {.canId = 0x581,
          .length = 8,
          .mdata = {0x42, 0x18, 0x10, 0x04, 0x01, 0x00, 0x00, 0x00}});
+    canOpenRx();
+    // 0x6061 modes of operation, which this controller does not implement.
+    // Nothing depends on the answer; it only decides combined drive pairing.
+    canOpenTx();
+    this->canMsgReadQueue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x80, 0x61, 0x60, 0x00, 0x00, 0x00, 0x02, 0x06}});
     canOpenRx();
     EXPECT_EQ(nodes[0].connected, veTrue);
 

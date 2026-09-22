@@ -104,6 +104,14 @@ TEST_F(NodeTest, connectToNodeSuccessSevcon) {
          .length = 8,
          .mdata = {0x42, 0x18, 0x10, 0x04, 0x01, 0x00, 0x00, 0x00}});
     canOpenRx();
+    // 0x6061 modes of operation, which this controller does not implement.
+    // Nothing depends on the answer; it only decides combined drive pairing.
+    canOpenTx();
+    this->canMsgReadQueue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x80, 0x61, 0x60, 0x00, 0x00, 0x00, 0x02, 0x06}});
+    canOpenRx();
 
     EXPECT_EQ(nodes[0].connected, veTrue);
 
@@ -131,6 +139,14 @@ TEST_F(NodeTest, connectToNodeSuccessCurtisF) {
          .length = 8,
          .mdata = {0x42, 0x18, 0x10, 0x04, 0x01, 0x00, 0x00, 0x00}});
     canOpenRx();
+    // 0x6061 modes of operation, which this controller does not implement.
+    // Nothing depends on the answer; it only decides combined drive pairing.
+    canOpenTx();
+    this->canMsgReadQueue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x80, 0x61, 0x60, 0x00, 0x00, 0x00, 0x02, 0x06}});
+    canOpenRx();
 
     EXPECT_EQ(nodes[0].connected, veTrue);
 
@@ -157,6 +173,14 @@ TEST_F(NodeTest, connectToNodeSuccessSevconWithoutSerialNumber) {
         {.canId = 0x581,
          .length = 8,
          .mdata = {0x80, 0x18, 0x10, 0x04, 0x00, 0x00, 0x02, 0x06}});
+    canOpenRx();
+    // 0x6061 modes of operation, which this controller does not implement.
+    // Nothing depends on the answer; it only decides combined drive pairing.
+    canOpenTx();
+    this->canMsgReadQueue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x80, 0x61, 0x60, 0x00, 0x00, 0x00, 0x02, 0x06}});
     canOpenRx();
 
     EXPECT_EQ(nodes[0].connected, veTrue);
@@ -186,6 +210,14 @@ TEST_F(NodeTest, connectToNodeSuccessCurtisFWithoutSerialNumber) {
         {.canId = 0x581,
          .length = 8,
          .mdata = {0x80, 0x18, 0x10, 0x04, 0x11, 0x00, 0x09, 0x06}});
+    canOpenRx();
+    // 0x6061 modes of operation, which this controller does not implement.
+    // Nothing depends on the answer; it only decides combined drive pairing.
+    canOpenTx();
+    this->canMsgReadQueue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x80, 0x61, 0x60, 0x00, 0x00, 0x00, 0x02, 0x06}});
     canOpenRx();
 
     EXPECT_EQ(nodes[0].connected, veTrue);
@@ -322,6 +354,14 @@ TEST_F(NodeTest, readFromConnectedNodes) {
          .length = 8,
          .mdata = {0x42, 0x18, 0x10, 0x04, 0x01, 0x00, 0x00, 0x00}});
     canOpenRx();
+    // 0x6061 modes of operation, which this controller does not implement.
+    // Nothing depends on the answer; it only decides combined drive pairing.
+    canOpenTx();
+    this->canMsgReadQueue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x80, 0x61, 0x60, 0x00, 0x00, 0x00, 0x02, 0x06}});
+    canOpenRx();
 
     EXPECT_EQ(nodes[0].connected, veTrue);
 
@@ -441,6 +481,14 @@ TEST_F(NodeTest, readFromConnectedNodesFast) {
          .length = 8,
          .mdata = {0x42, 0x18, 0x10, 0x04, 0x01, 0x00, 0x00, 0x00}});
     canOpenRx();
+    // 0x6061 modes of operation, which this controller does not implement.
+    // Nothing depends on the answer; it only decides combined drive pairing.
+    canOpenTx();
+    this->canMsgReadQueue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x80, 0x61, 0x60, 0x00, 0x00, 0x00, 0x02, 0x06}});
+    canOpenRx();
 
     EXPECT_EQ(nodes[0].connected, veTrue);
 
@@ -495,6 +543,14 @@ TEST_F(NodeTest, readFromConnectedNodesBusy) {
          .length = 8,
          .mdata = {0x42, 0x18, 0x10, 0x04, 0x01, 0x00, 0x00, 0x00}});
     canOpenRx();
+    // 0x6061 modes of operation, which this controller does not implement.
+    // Nothing depends on the answer; it only decides combined drive pairing.
+    canOpenTx();
+    this->canMsgReadQueue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x80, 0x61, 0x60, 0x00, 0x00, 0x00, 0x02, 0x06}});
+    canOpenRx();
 
     EXPECT_EQ(nodes[0].connected, veTrue);
 
@@ -524,6 +580,14 @@ TEST_F(NodeTest, readFromConnectedNodesTimeout) {
         {.canId = 0x581,
          .length = 8,
          .mdata = {0x42, 0x18, 0x10, 0x04, 0x01, 0x00, 0x00, 0x00}});
+    canOpenRx();
+    // 0x6061 modes of operation, which this controller does not implement.
+    // Nothing depends on the answer; it only decides combined drive pairing.
+    canOpenTx();
+    this->canMsgReadQueue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x80, 0x61, 0x60, 0x00, 0x00, 0x00, 0x02, 0x06}});
     canOpenRx();
 
     EXPECT_EQ(nodes[0].connected, veTrue);
@@ -563,6 +627,14 @@ TEST_F(NodeTest, isNodeConnected) {
         {.canId = 0x581,
          .length = 8,
          .mdata = {0x42, 0x18, 0x10, 0x04, 0x01, 0x00, 0x00, 0x00}});
+    canOpenRx();
+    // 0x6061 modes of operation, which this controller does not implement.
+    // Nothing depends on the answer; it only decides combined drive pairing.
+    canOpenTx();
+    this->canMsgReadQueue.push_back(
+        {.canId = 0x581,
+         .length = 8,
+         .mdata = {0x80, 0x61, 0x60, 0x00, 0x00, 0x00, 0x02, 0x06}});
     canOpenRx();
 
     EXPECT_EQ(isNodeConnected(1), veTrue);

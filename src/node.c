@@ -2,6 +2,7 @@
 #include <logger.h>
 #include <memory.h>
 #include <node.h>
+#include <pair.h>
 #include <servicemanager.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,19 +19,61 @@ static void finalizeConnection(ConnectionAttempt *attempt, un32 serialNumber) {
     node->device->driver = attempt->driver;
 
     createDevice(node->device, attempt->nodeId, serialNumber);
-    exportDevice(node->device);
     node->connected = veTrue;
     if (node->device->driver->createDriverContext != NULL) {
         node->device->driverContext =
             node->device->driver->createDriverContext(node);
     }
+
     _free(attempt);
+}
+
+// 0x6061 is the DS402 modes of operation display. It tells a combined drive
+// apart from independent motors: one controller runs the speed loop while the
+// other follows torque.
+//
+// Read after the node is connected rather than as part of the handshake, so
+// connecting is unchanged for every existing driver. Nothing waits on the
+// answer: the request is queued before any read routine can run, and a device
+// is not published until a read cycle completes, which cannot happen while the
+// queue still holds this request. So the mode is always known in time.
+//
+// A controller that does not implement 0x6061 simply never takes part in a
+// pair, so a failure here is not a reason to reject the node.
+static void onModeOfOperationResponse(CanOpenPendingSdoRequest *request) {
+    Node *node;
+
+    node = (Node *)request->context;
+    if (!node->connected) {
+        return;
+    }
+    setNodeModeOfOperation(node->device->nodeId, (un8)request->response.data);
+}
+
+static void onModeOfOperationError(CanOpenPendingSdoRequest *request,
+                                   CanOpenError error) {
+    Node *node;
+
+    node = (Node *)request->context;
+    if (!node->connected) {
+        return;
+    }
+    setNodeModeOfOperation(node->device->nodeId, 0);
+}
+
+static void readModeOfOperation(un8 nodeId) {
+    canOpenReadSdoAsync(nodeId, 0x6061, 0, &nodes[nodeId - 1],
+                        onModeOfOperationResponse, onModeOfOperationError);
 }
 
 static void
 onControllerSerialNumberResponse(CanOpenPendingSdoRequest *request) {
+    un8 nodeId;
+
+    nodeId = ((ConnectionAttempt *)request->context)->nodeId;
     finalizeConnection((ConnectionAttempt *)request->context,
                        request->response.data);
+    readModeOfOperation(nodeId);
 }
 
 static veBool
@@ -49,12 +92,15 @@ shouldFallbackToNodeIdForSerialNumber(CanOpenPendingSdoRequest *request,
 static void onControllerSerialNumberError(CanOpenPendingSdoRequest *request,
                                           CanOpenError error) {
     ConnectionAttempt *attempt;
+    un8 nodeId;
 
     attempt = (ConnectionAttempt *)request->context;
     if (shouldFallbackToNodeIdForSerialNumber(request, error)) {
         // SDO 0x1018.04 (serial number) is not supported by node.
         // Falling back to using CANopen node ID.
-        finalizeConnection(attempt, attempt->nodeId);
+        nodeId = attempt->nodeId;
+        finalizeConnection(attempt, nodeId);
+        readModeOfOperation(nodeId);
         return;
     }
 
@@ -108,6 +154,10 @@ void disconnectFromNode(un8 nodeId) {
     _free(node->device);
     node->device = NULL;
     node->connected = veFalse;
+
+    // Only once the node no longer counts as connected, otherwise detection
+    // would immediately pair it again.
+    forgetNodeModeOfOperation(nodeId);
 }
 
 void connectToDiscoveredNodes() {
@@ -126,15 +176,51 @@ void connectToDiscoveredNodes() {
     }
 }
 
+static Device *deviceForNode(un8 nodeId) {
+    Node *node;
+
+    if (nodeId == 0 || nodeId > 127) {
+        return NULL;
+    }
+    node = &nodes[nodeId - 1];
+    return node->connected ? node->device : NULL;
+}
+
 static void onReadRoutineComplete(CanOpenPendingSdoRequest *request) {
     Node *node;
+    DrivePair *pair;
+    Device *primary;
 
     node = (Node *)request->context;
     if (!node->connected) {
         return;
     }
 
-    veItemSendPendingChanges(node->device->root);
+    pair = drivePairForNode(node->device->nodeId);
+    if (pair == NULL) {
+        exportDevice(node->device);
+        veItemSendPendingChanges(node->device->root);
+        return;
+    }
+
+    // Hold the publish until both halves have reported, so the two samples
+    // come from the same cycle. Nodes are read in ascending id order, so
+    // publishing on the primary's own callback would always combine the
+    // secondary's previous cycle.
+    markPairMemberRead(pair, node->device->nodeId);
+    if (!isPairComplete(pair)) {
+        return;
+    }
+    clearPairMembersRead(pair);
+
+    primary = deviceForNode(pair->primaryNodeId);
+    if (primary == NULL) {
+        return;
+    }
+
+    // Only the primary is ever published. The secondary's tree stays private.
+    exportDevice(primary);
+    veItemSendPendingChanges(primary->root);
 }
 
 void readFromConnectedNodes(veBool fast) {
