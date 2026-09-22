@@ -218,8 +218,11 @@ static void onReadRoutineComplete(CanOpenPendingSdoRequest *request) {
         return;
     }
 
-    // Only the primary is ever published. The secondary's tree stays private.
+    // Only the primary is ever published, and it has to be exported before
+    // aggregating: exporting is what creates the per-controller items that
+    // aggregation writes into.
     exportDevice(primary);
+    aggregatePair(pair);
     veItemSendPendingChanges(primary->root);
 }
 

@@ -69,4 +69,12 @@ void forgetNodeModeOfOperation(un8 nodeId);
  */
 void updateDrivePairs(void);
 
+/**
+ * Combines both members' readings into the primary's published items, and
+ * fills in the per-controller values alongside. Reads everything before it
+ * writes anything, so the primary's own share is still in its items when they
+ * are replaced by the total.
+ */
+void aggregatePair(DrivePair *pair);
+
 #endif

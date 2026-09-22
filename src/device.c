@@ -3,6 +3,7 @@
 #include <device.h>
 #include <localsettings.h>
 #include <logger.h>
+#include <pair.h>
 #include <stdio.h>
 #include <velib/canhw/canhw_driver.h>
 #include <velib/platform/plt.h>
@@ -146,19 +147,71 @@ void getDeviceDisplayName(Device *device, VeStr *out) {
 }
 
 void createDevice(Device *device, un8 nodeId, un32 serialNumber) {
+    un8 member;
+
     device->nodeId = nodeId;
     device->serialNumber = serialNumber;
     device->exported = veFalse;
+
+    // The device is allocated without being zeroed, and these stay unset
+    // unless this turns out to be the primary of a combined drive.
+    for (member = 0; member < 2; member += 1) {
+        device->memberCurrent[member] = NULL;
+        device->memberPower[member] = NULL;
+        device->memberRpm[member] = NULL;
+        device->memberMotorTemperature[member] = NULL;
+        device->memberControllerTemperature[member] = NULL;
+    }
 
     createDeviceIdentifier(device);
     createDbusTree(device);
 }
 
+// Only a combined drive has these, and whether a device is part of one is not
+// known until both controllers have connected, which is why this happens at
+// export rather than when the tree is built.
+static void createMemberItems(Device *device) {
+    VeVariant v;
+    char path[64];
+    un8 member;
+
+    for (member = 0; member < 2; member += 1) {
+        snprintf(path, sizeof(path), "Controller/%u/Current", member);
+        device->memberCurrent[member] = veItemCreateQuantity(
+            device->root, path, veVariantFloat(&v, 0.0F), &veUnitAmps1Dec);
+
+        snprintf(path, sizeof(path), "Controller/%u/Power", member);
+        device->memberPower[member] = veItemCreateQuantity(
+            device->root, path, veVariantSn32(&v, 0), &veUnitWatt);
+
+        snprintf(path, sizeof(path), "Controller/%u/RPM", member);
+        device->memberRpm[member] = veItemCreateQuantity(
+            device->root, path, veVariantInvalidType(&v, VE_UN16),
+            &unitRpm0Dec);
+
+        snprintf(path, sizeof(path), "Controller/%u/MotorTemperature", member);
+        device->memberMotorTemperature[member] = veItemCreateQuantity(
+            device->root, path, veVariantInvalidType(&v, VE_SN16),
+            &unitCelsius0Dec);
+
+        snprintf(path, sizeof(path), "Controller/%u/Temperature", member);
+        device->memberControllerTemperature[member] = veItemCreateQuantity(
+            device->root, path, veVariantInvalidType(&v, VE_SN16),
+            &unitCelsius0Dec);
+    }
+}
+
 void exportDevice(Device *device) {
     VeVariant v;
+    DrivePair *pair;
 
     if (device->exported) {
         return;
+    }
+
+    pair = drivePairForNode(device->nodeId);
+    if (pair != NULL && pair->primaryNodeId == device->nodeId) {
+        createMemberItems(device);
     }
 
     connectToDbus(device);

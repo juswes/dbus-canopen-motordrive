@@ -41,6 +41,18 @@ typedef struct _Device {
     VeItem *motorDirectionInverted;
     VeItem *customName;
 
+    /**
+     * Per-controller values, created only on the primary of a combined drive.
+     * The boat page reads the aggregated paths above and sees one gauge; the
+     * detail page can show what each controller is doing. Index 0 is the
+     * primary, index 1 the secondary.
+     */
+    VeItem *memberCurrent[2];
+    VeItem *memberPower[2];
+    VeItem *memberRpm[2];
+    VeItem *memberMotorTemperature[2];
+    VeItem *memberControllerTemperature[2];
+
     Driver *driver;
     void *driverContext;
 } Device;
