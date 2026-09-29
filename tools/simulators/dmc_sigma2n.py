@@ -92,12 +92,35 @@ def set_torque(node, torque, torque_nm):
     node.sdo[0x411C].raw = torque_to_dmc_torque_nm(torque_nm)
 
 
+# Sigma2N firmware V03.03.01 announces a 20 byte segmented upload of 0x1008 and
+# then aborts every segment request with 0x06020000, so the device name is
+# never readable and discovery falls back to the identity object. Reproduced
+# here, otherwise the simulator only exercises a path the controller does not
+# take. Confirmed on two controllers, at segment request intervals from 5ms to
+# 1s, while every expedited read in the same capture succeeded.
+def abort_segmented_name_upload(node):
+    server = node.sdo
+    upload_segment = server.segmented_upload
+
+    def segmented_upload(command):
+        if server._index == 0x1008:
+            # The controller echoes a zero index and subindex in the abort
+            # rather than the object being read.
+            server._index = 0
+            server._subindex = 0
+            raise canopen.SdoAbortedError(0x06020000)
+        upload_segment(command)
+
+    server.segmented_upload = segmented_upload
+
+
 # The object dictionary is indexed by number rather than by name because the
 # DMC object dictionary reuses parameter names across indexes.
 def create_dmc_node(id):
     node = canopen.LocalNode(id, "./dmc_sigma2n.eds")
 
     node.sdo[0x1008].raw = "Sigma2N IPM Traction"
+    abort_segmented_name_upload(node)
     node.sdo[0x1018][4].raw = serial_number
     node.sdo[0x383F].raw = voltage_to_dmc_voltage(battery_voltage)
     node.sdo[0x383E].raw = current_to_dmc_current(battery_current)

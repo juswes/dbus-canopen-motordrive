@@ -516,52 +516,6 @@ TEST_F(DiscoveryTest, discoverNodeSuccessSevconWithBorgWarnerControllerName) {
     EXPECT_EQ(testDiscoveryErrorCallback_fake.call_count, 0);
 }
 
-// "Sigma2N IPM Traction" is 20 characters, so the controller name is read
-// with a segmented SDO transfer.
-TEST_F(DiscoveryTest, discoverNodeSuccessDmcSigma2N) {
-    VeRawCanMsg message;
-
-    discoverNode(1, testDiscoverySuccessCallback, testDiscoveryErrorCallback,
-                 NULL);
-
-    EXPECT_NE(canOpenState.pendingSdoRequests->first, nullptr);
-
-    canOpenTx();
-    EXPECT_EQ(testDiscoverySuccessCallback_fake.call_count, 0);
-    EXPECT_EQ(testDiscoveryErrorCallback_fake.call_count, 0);
-
-    this->canMsgReadQueue.push_back(
-        {.canId = 0x581,
-         .length = 8,
-         .mdata = {0x41, 0x08, 0x10, 0x00, 0x14, 0x00, 0x00, 0x00}});
-    canOpenRx();
-
-    // "Sigma2N"
-    this->canMsgReadQueue.push_back(
-        {.canId = 0x581,
-         .length = 8,
-         .mdata = {0x00, 0x53, 0x69, 0x67, 0x6D, 0x61, 0x32, 0x4E}});
-    canOpenRx();
-
-    // " IPM Tr"
-    this->canMsgReadQueue.push_back(
-        {.canId = 0x581,
-         .length = 8,
-         .mdata = {0x10, 0x20, 0x49, 0x50, 0x4D, 0x20, 0x54, 0x72}});
-    canOpenRx();
-
-    // "action"
-    this->canMsgReadQueue.push_back(
-        {.canId = 0x581,
-         .length = 8,
-         .mdata = {0x03, 0x61, 0x63, 0x74, 0x69, 0x6F, 0x6E, 0x00}});
-    canOpenRx();
-
-    EXPECT_EQ(testDiscoverySuccessCallback_fake.call_count, 1);
-    EXPECT_EQ(testDiscoverySuccessCallback_fake.arg2_val, &dmcDriver);
-    EXPECT_EQ(testDiscoveryErrorCallback_fake.call_count, 0);
-}
-
 // All four frames below were captured from a DMC Sigma2N pair, firmware
 // V03.03.01, on a 6-phase bench setup. The controller announces a 20 byte
 // segmented upload of 0x1008 and then aborts the segment request, so

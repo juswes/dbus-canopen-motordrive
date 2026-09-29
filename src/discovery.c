@@ -17,10 +17,10 @@ static Driver *getDriverForNodeName(const char *name, un8 length) {
         return &sevconDriver;
     } else if (length >= 4 && strncmp(name, "AC F", 4) == 0) {
         return &curtisFDriver;
-    } else if (length >= 7 && strstr(name, "Sigma2N") != NULL) {
-        return &dmcDriver;
     }
-    // Curtis 123X SE/E controllers do not support SDO 0x1008
+    // Curtis 123X SE/E controllers do not support SDO 0x1008, and DMC Sigma2N
+    // controllers do not serve it either. Both are identified from the
+    // identity object instead, see onProductNameError().
 
     return NULL;
 }
