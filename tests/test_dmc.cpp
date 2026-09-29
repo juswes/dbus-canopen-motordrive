@@ -36,8 +36,9 @@ class DmcTest : public CanFixture {
         canOpenState.pendingSdoRequests = NULL;
     }
 
-    // "Sigma2N IPM Traction" is 20 characters, so the controller name is read
-    // with a segmented SDO transfer.
+    // The controller announces a 20 byte segmented upload of 0x1008 and then
+    // aborts the segment request, so discovery identifies it from the identity
+    // object. Frames captured from a Sigma2N pair, firmware V03.03.01.
     void connectToDmcNode() {
         connectToNode(1);
         canOpenTx();
@@ -46,23 +47,24 @@ class DmcTest : public CanFixture {
              .length = 8,
              .mdata = {0x41, 0x08, 0x10, 0x00, 0x14, 0x00, 0x00, 0x00}});
         canOpenRx();
-        // "Sigma2N"
         this->canMsgReadQueue.push_back(
             {.canId = 0x581,
              .length = 8,
-             .mdata = {0x00, 0x53, 0x69, 0x67, 0x6D, 0x61, 0x32, 0x4E}});
+             .mdata = {0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x06}});
         canOpenRx();
-        // " IPM Tr"
+        canOpenTx();
+        // Vendor ID 0x04F1
         this->canMsgReadQueue.push_back(
             {.canId = 0x581,
              .length = 8,
-             .mdata = {0x10, 0x20, 0x49, 0x50, 0x4D, 0x20, 0x54, 0x72}});
+             .mdata = {0x43, 0x18, 0x10, 0x01, 0xF1, 0x04, 0x00, 0x00}});
         canOpenRx();
-        // "action"
+        canOpenTx();
+        // Product code 0x22488014
         this->canMsgReadQueue.push_back(
             {.canId = 0x581,
              .length = 8,
-             .mdata = {0x03, 0x61, 0x63, 0x74, 0x69, 0x6F, 0x6E, 0x00}});
+             .mdata = {0x43, 0x18, 0x10, 0x02, 0x14, 0x80, 0x48, 0x22}});
         canOpenRx();
         canOpenTx();
         this->canMsgReadQueue.push_back(
@@ -124,6 +126,14 @@ class DmcTest : public CanFixture {
         }
     }
 };
+
+TEST_F(DmcTest, createDriverContextMallocFailure) {
+    _malloc_fake.custom_fake = NULL;
+    _malloc_fake.return_val = NULL;
+
+    ASSERT_EXIT(dmcDriver.createDriverContext(&nodes[0]);
+                , ::testing::ExitedWithCode(5), "");
+}
 
 TEST_F(DmcTest, readSuccess) {
     VeRawCanMsg message;
