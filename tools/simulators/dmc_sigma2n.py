@@ -120,7 +120,8 @@ def create_dmc_node(id, dual_motor_configuration=0):
     node = canopen.LocalNode(id, "./dmc_sigma2n.eds")
 
     # 0x2403, parameter M2-5 "DMconfig": 0 single motor, 3 master and 4 slave
-    # of a 6-phase pair. Run two simulators to play both halves.
+    # of a 6-phase pair. Run two simulators to play both halves, the slave at
+    # the master's node ID plus one.
     node.sdo[0x2403].raw = dual_motor_configuration
 
     node.sdo[0x1008].raw = "Sigma2N IPM Traction"

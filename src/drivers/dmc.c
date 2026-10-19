@@ -1,6 +1,5 @@
 #include <canopen.h>
 #include <drivers/dmc.h>
-#include <localsettings.h>
 #include <logger.h>
 #include <math.h>
 #include <memory.h>
@@ -63,13 +62,6 @@ static Error errorDb[] = {{2, "Voltage getting low"},
                           {36, "Controller temperature over 100 degrees"},
                           {39, "Generic time out"},
                           {40, "System fault"}};
-
-static struct VeSettingProperties slaveNodeIdType = {
-    .type = VE_SN32,
-    .def.value.SN32 = 0,
-    .min.value.SN32 = 0,
-    .max.value.SN32 = 127,
-};
 
 static Error *findError(un8 faultCode) {
     size_t dbSize = sizeof(errorDb) / sizeof(Error);
@@ -361,6 +353,11 @@ static void onSlaveFaultSubcodeResponse(CanOpenPendingSdoRequest *request) {
     }
 
     context = GET_DMC_CONTEXT(node);
+    if (!context->slaveConnected) {
+        // A slave read of this cycle failed, maybe 0x3840, whose code would
+        // then be an earlier cycle's. The fault is read again next cycle.
+        return;
+    }
     handleFaultSubcode(node, &context->slaveFault, request->nodeId,
                        (un16)request->response.data);
 }
@@ -484,72 +481,44 @@ static void onReadComplete(CanOpenPendingSdoRequest *request) {
     }
 
     context = GET_DMC_CONTEXT(node);
-    if (context->slaveNodeId == 0) {
-        publishSingleDrive(node, context);
-    } else {
+    if (context->isDualDrive) {
         publishDualDrive(node, context);
+    } else {
+        publishSingleDrive(node, context);
     }
 }
 
+// Only a dual drive is read here, and a master at node 127 is never one, so
+// the slave's node ID is always valid.
 static void readSlave(Node *node, DmcContext *context) {
+    un8 slaveNodeId = node->device->nodeId + 1;
+
     if (!context->slaveConnected) {
         context->slaveProbing = veTrue;
-        canOpenReadSdoAsync(context->slaveNodeId, 0x383e, 0, node,
-                            onSlaveProbeResponse, onSlaveProbeError);
+        canOpenReadSdoAsync(slaveNodeId, 0x383e, 0, node, onSlaveProbeResponse,
+                            onSlaveProbeError);
         return;
     }
 
     context->slaveProbing = veFalse;
-    canOpenReadSdoAsync(context->slaveNodeId, 0x383e, 0, node,
-                        onSlaveCurrentResponse, onSlaveError);
-    canOpenReadSdoAsync(context->slaveNodeId, 0x411c, 0, node,
-                        onSlaveTorqueResponse, onSlaveError);
-    canOpenReadSdoAsync(context->slaveNodeId, 0x3836, 0, node,
+    canOpenReadSdoAsync(slaveNodeId, 0x383e, 0, node, onSlaveCurrentResponse,
+                        onSlaveError);
+    canOpenReadSdoAsync(slaveNodeId, 0x411c, 0, node, onSlaveTorqueResponse,
+                        onSlaveError);
+    canOpenReadSdoAsync(slaveNodeId, 0x3836, 0, node,
                         onSlaveMotorTemperatureResponse, onSlaveError);
-    canOpenReadSdoAsync(context->slaveNodeId, 0x3837, 0, node,
+    canOpenReadSdoAsync(slaveNodeId, 0x3837, 0, node,
                         onSlaveControllerTemperatureResponse, onSlaveError);
-    canOpenReadSdoAsync(context->slaveNodeId, 0x3840, 0, node,
-                        onSlaveFaultCodeResponse, onSlaveError);
-    canOpenReadSdoAsync(context->slaveNodeId, 0x3841, 0, node,
+    canOpenReadSdoAsync(slaveNodeId, 0x3840, 0, node, onSlaveFaultCodeResponse,
+                        onSlaveError);
+    canOpenReadSdoAsync(slaveNodeId, 0x3841, 0, node,
                         onSlaveFaultSubcodeResponse, onSlaveError);
-}
-
-static un8 resolveSlaveNodeId(Node *node, DmcContext *context) {
-    VeVariant v;
-    un8 nodeId;
-    sn32 slaveNodeId;
-
-    if (context->slaveNodeIdSetting == NULL) {
-        // Not a master, or 0x2403 has not answered yet.
-        return 0;
-    }
-    veItemLocalValue(context->slaveNodeIdSetting, &v);
-    if (!veVariantIsValid(&v)) {
-        // Not loaded from localsettings yet.
-        return 0;
-    }
-
-    nodeId = node->device->nodeId;
-    slaveNodeId = v.value.SN32;
-    if (slaveNodeId < 1 || slaveNodeId > 127 || slaveNodeId == nodeId ||
-        isNodeConnected((un8)slaveNodeId)) {
-        return 0;
-    }
-    return (un8)slaveNodeId;
 }
 
 static void readRoutine(Node *node) {
     DmcContext *context;
-    un8 slaveNodeId;
 
     context = GET_DMC_CONTEXT(node);
-
-    slaveNodeId = resolveSlaveNodeId(node, context);
-    if (slaveNodeId != context->slaveNodeId) {
-        context->slaveNodeId = slaveNodeId;
-        context->slaveConnected = veFalse;
-        memset(&context->slaveFault, 0, sizeof(context->slaveFault));
-    }
 
     canOpenReadSdoAsync(node->device->nodeId, 0x383f, 0, node,
                         onBatteryVoltageResponse, onError);
@@ -568,7 +537,7 @@ static void readRoutine(Node *node) {
     canOpenReadSdoAsync(node->device->nodeId, 0x3841, 0, node,
                         onFaultSubcodeResponse, onError);
 
-    if (context->slaveNodeId != 0) {
+    if (context->isDualDrive) {
         readSlave(node, context);
     }
     canOpenQueueCallbackAsync(node, onReadComplete);
@@ -627,7 +596,6 @@ static void
 onDualMotorConfigurationResponse(CanOpenPendingSdoRequest *request) {
     Node *node;
     DmcContext *context;
-    char settingsPath[128];
 
     node = (Node *)request->context;
     if (!node->connected) {
@@ -637,13 +605,18 @@ onDualMotorConfigurationResponse(CanOpenPendingSdoRequest *request) {
     if ((un8)request->response.data != DMC_DUAL_MOTOR_MASTER) {
         return;
     }
+    if (node->device->nodeId >= 127) {
+        // The slave is at the master's node ID plus one, and there is no node
+        // 128. A configuration mistake, so the master is read on its own.
+        warning("Dual motor master at node %u has no slave node ID, reading it "
+                "as a single drive",
+                node->device->nodeId);
+        return;
+    }
 
-    snprintf(settingsPath, sizeof(settingsPath), "Settings/Devices/%s",
-             node->device->identifier);
     context = GET_DMC_CONTEXT(node);
-    context->slaveNodeIdSetting = veItemCreateSettingsProxyId(
-        localSettings, settingsPath, node->device->root, "SlaveNodeId",
-        veVariantFmt, &veUnitNone, &slaveNodeIdType, "Settings/SlaveNodeId");
+    context->isDualDrive = veTrue;
+    context->slaveConnected = veTrue;
 }
 
 static void onDualMotorConfigurationError(CanOpenPendingSdoRequest *request,
@@ -666,7 +639,6 @@ static void *createDriverContext(Node *node) {
     context = _malloc(sizeof(*context));
     CHECK_ALLOC(context);
     memset(context, 0, sizeof(*context));
-    context->slaveConnected = veFalse;
 
     canOpenReadSdoAsync(node->device->nodeId, 0x2403, 0, node,
                         onDualMotorConfigurationResponse,
@@ -675,7 +647,6 @@ static void *createDriverContext(Node *node) {
     return (void *)context;
 }
 
-// The setting item lives in the device tree and goes with it.
 static void destroyDriverContext(Node *node, void *context) { _free(context); }
 
 Driver dmcDriver = {

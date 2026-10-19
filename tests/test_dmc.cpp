@@ -38,6 +38,9 @@ class DmcTest : public CanFixture {
         canOpenState.pendingSdoRequests = NULL;
     }
 
+    // The node the helpers below connect, node 1 unless a test says otherwise.
+    un8 dmcNodeId = 1;
+
     // The controller announces a 20 byte segmented upload of 0x1008 and then
     // aborts the segment request, so discovery identifies it from the identity
     // object. Frames captured from a Sigma2N pair, firmware V03.03.01.
@@ -46,16 +49,16 @@ class DmcTest : public CanFixture {
             dualMotorConfigurationResponse(dualMotorConfiguration));
     }
 
-    // Connects node 1, which gives the same answer to 0x2403 in discovery and
-    // to the driver's own read once connected. Without an answer, discovery
-    // sees a master and the driver's read is left pending.
+    // Connects the controller at dmcNodeId, which gives the same answer to
+    // 0x2403 in discovery and to the driver's own read once connected. Without
+    // an answer, discovery sees a master and the driver's read is left pending.
     void connectToDmcNodeAnswering(std::optional<VeRawCanMsg> configuration) {
-        connectToNode(1);
+        connectToNode(dmcNodeId);
         answerDmcDiscovery(configuration.value_or(
             dualMotorConfigurationResponse(DMC_DUAL_MOTOR_MASTER)));
         canOpenTx();
         this->canMsgReadQueue.push_back(
-            {.canId = 0x581,
+            {.canId = (un32)(0x580 + dmcNodeId),
              .length = 8,
              .mdata = {0x43, 0x18, 0x10, 0x04, 0x01, 0x00, 0x00, 0x00}});
         canOpenRx();
@@ -66,37 +69,38 @@ class DmcTest : public CanFixture {
         }
     }
 
-    static VeRawCanMsg dualMotorConfigurationResponse(un8 configuration) {
+    VeRawCanMsg dualMotorConfigurationResponse(un8 configuration) {
         return {
-            .canId = 0x581,
+            .canId = (un32)(0x580 + dmcNodeId),
             .length = 8,
             .mdata = {0x4F, 0x03, 0x24, 0x00, configuration, 0x00, 0x00, 0x00}};
     }
 
-    // Node 1 answering discovery, up to and including 0x2403.
+    // The controller at dmcNodeId answering discovery, up to and including
+    // 0x2403.
     void answerDmcDiscovery(VeRawCanMsg dualMotorConfiguration) {
         canOpenTx();
         this->canMsgReadQueue.push_back(
-            {.canId = 0x581,
+            {.canId = (un32)(0x580 + dmcNodeId),
              .length = 8,
              .mdata = {0x41, 0x08, 0x10, 0x00, 0x14, 0x00, 0x00, 0x00}});
         canOpenRx();
         this->canMsgReadQueue.push_back(
-            {.canId = 0x581,
+            {.canId = (un32)(0x580 + dmcNodeId),
              .length = 8,
              .mdata = {0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x06}});
         canOpenRx();
         canOpenTx();
         // Vendor ID 0x04F1
         this->canMsgReadQueue.push_back(
-            {.canId = 0x581,
+            {.canId = (un32)(0x580 + dmcNodeId),
              .length = 8,
              .mdata = {0x43, 0x18, 0x10, 0x01, 0xF1, 0x04, 0x00, 0x00}});
         canOpenRx();
         canOpenTx();
         // Product code 0x22488014
         this->canMsgReadQueue.push_back(
-            {.canId = 0x581,
+            {.canId = (un32)(0x580 + dmcNodeId),
              .length = 8,
              .mdata = {0x43, 0x18, 0x10, 0x02, 0x14, 0x80, 0x48, 0x22}});
         canOpenRx();
@@ -770,8 +774,8 @@ TEST_F(DmcTest, emcyResetRearmsFault) {
 }
 
 // A 6-phase motor driven by two controllers: the master at node 1 and the slave
-// following its torque at node 2. Values are those of the bench pair under
-// load, rounded.
+// following its torque at node 2. The slave is always at the master's node ID
+// plus one. Values are those of the bench pair under load, rounded.
 class DmcDualMotorTest : public DmcTest {
   protected:
     static VeRawCanMsg response(un8 nodeId, un8 command, un16 index,
@@ -783,25 +787,16 @@ class DmcDualMotorTest : public DmcTest {
                           (un8)((data >> 16) & 0xFF), (un8)(data >> 24)}};
     }
 
-    void setSlaveNodeId(sn32 slaveNodeId) {
-        VeVariant v;
-        DmcContext *context;
-
-        context = (DmcContext *)nodes[0].device->driverContext;
-        veItemOwnerSet(context->slaveNodeIdSetting,
-                       veVariantSn32(&v, slaveNodeId));
-    }
-
     // 51.8 V, 13.3 A, 1408 RPM, motor 30 C, 20.0 Nm, controller 28 C
-    void pushMasterReadings(std::vector<VeRawCanMsg> &queue) {
-        queue.push_back(response(1, 0x4B, 0x383F, 518));
-        queue.push_back(response(1, 0x4B, 0x383E, 133));
-        queue.push_back(response(1, 0x43, 0x606C, 1408));
-        queue.push_back(response(1, 0x4F, 0x3836, 30 + 51));
-        queue.push_back(response(1, 0x4B, 0x411C, 200));
-        queue.push_back(response(1, 0x4F, 0x3837, 28 + 51));
-        queue.push_back(response(1, 0x4F, 0x3840, 0));
-        queue.push_back(response(1, 0x4B, 0x3841, 0));
+    void pushMasterReadings(std::vector<VeRawCanMsg> &queue, un8 nodeId = 1) {
+        queue.push_back(response(nodeId, 0x4B, 0x383F, 518));
+        queue.push_back(response(nodeId, 0x4B, 0x383E, 133));
+        queue.push_back(response(nodeId, 0x43, 0x606C, 1408));
+        queue.push_back(response(nodeId, 0x4F, 0x3836, 30 + 51));
+        queue.push_back(response(nodeId, 0x4B, 0x411C, 200));
+        queue.push_back(response(nodeId, 0x4F, 0x3837, 28 + 51));
+        queue.push_back(response(nodeId, 0x4F, 0x3840, 0));
+        queue.push_back(response(nodeId, 0x4B, 0x3841, 0));
     }
 
     // 14.9 A, 18.5 Nm, motor 33 C, controller 26 C
@@ -829,7 +824,18 @@ class DmcDualMotorTest : public DmcTest {
         processPendingNotifications();
     }
 
-    // Until the slave has answered, a cycle reads the master and probes the
+    // The master answers and every one of the slave's reads times out.
+    void slaveMissingCycle() {
+        std::vector<VeRawCanMsg> queue;
+
+        nodes[0].device->driver->readRoutine(&nodes[0]);
+        EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 15);
+        pushMasterReadings(queue);
+        drainQueue(queue);
+        timeOutPendingRequests();
+    }
+
+    // Once the slave has failed, a cycle reads the master and probes the
     // slave once: eight reads, the probe and the callback.
     void probeCycle(veBool slaveAnswers) {
         std::vector<VeRawCanMsg> queue;
@@ -867,17 +873,16 @@ class DmcDualMotorTest : public DmcTest {
     }
 };
 
+// The slave is read from the first cycle, after the master, at the master's
+// node ID plus one.
 TEST_F(DmcDualMotorTest, combinesMasterAndSlave) {
     Device *device;
 
     connectToDmcNode(DMC_DUAL_MOTOR_MASTER);
-    setSlaveNodeId(2);
-    probeCycle(veTrue);
     this->canMsgSentLog.clear();
 
     readCombinedCycle();
 
-    // The slave is read after the master, at its own node.
     EXPECT_EQ(this->canMsgSentLog.size(), 14);
     EXPECT_EQ(this->canMsgSentLog.at(7).canId, 0x601);
     EXPECT_EQ(this->canMsgSentLog.at(8).canId, 0x602);
@@ -895,58 +900,12 @@ TEST_F(DmcDualMotorTest, combinesMasterAndSlave) {
     EXPECT_EQ(injectPlatformNotification_fake.call_count, 0);
 }
 
-// The cycle that finds the slave only probes it, so none of its values have
-// been read yet. Current, power and torque stay invalid until the next cycle
-// reads them, rather than showing the master's share as the whole drive.
-TEST_F(DmcDualMotorTest, probeAloneIsNotACombinedReading) {
-    Device *device;
-
-    connectToDmcNode(DMC_DUAL_MOTOR_MASTER);
-    setSlaveNodeId(2);
-    device = nodes[0].device;
-
-    probeCycle(veTrue);
-    EXPECT_FALSE(isValid(device->current));
-    EXPECT_FALSE(isValid(device->power));
-    EXPECT_FALSE(isValid(device->motorTorque));
-    EXPECT_EQ(device->motorTemperature->variant.value.SN16, 30);
-    EXPECT_EQ(device->controllerTemperature->variant.value.SN16, 28);
-
-    readCombinedCycle();
-    EXPECT_FLOAT_EQ(device->current->variant.value.Float, 28.2F);
-}
-
-// Only a dual motor master gets the SlaveNodeId setting. It defaults to 0,
-// and the master is read alone until the slave is set by hand.
-TEST_F(DmcDualMotorTest, masterHasSlaveSetting) {
-    VeItem *setting;
-
-    connectToDmcNode(DMC_DUAL_MOTOR_MASTER);
-    EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 0);
-
-    setting = veItemByUid(nodes[0].device->root, "Settings/SlaveNodeId");
-    ASSERT_NE(setting, nullptr);
-    EXPECT_EQ(
-        setting,
-        ((DmcContext *)nodes[0].device->driverContext)->slaveNodeIdSetting);
-
-    setSlaveNodeId(0);
-    nodes[0].device->driver->readRoutine(&nodes[0]);
-    EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 9);
-    EXPECT_EQ(setting->variant.value.SN32, 0);
-}
-
 // A single motor, and the dual motor configurations that drive a wheel or
-// shaft each, have no slave to configure.
-TEST_F(DmcDualMotorTest, notAMasterHasNoSlaveSetting) {
+// shaft each, have no slave: only the controller itself is read.
+TEST_F(DmcDualMotorTest, notAMasterIsReadAlone) {
     for (un8 configuration : {0, 1, 2}) {
         connectToDmcNode(configuration);
         EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 0);
-
-        EXPECT_EQ(veItemByUid(nodes[0].device->root, "SlaveNodeId"), nullptr);
-        EXPECT_EQ(
-            ((DmcContext *)nodes[0].device->driverContext)->slaveNodeIdSetting,
-            nullptr);
 
         nodes[0].device->driver->readRoutine(&nodes[0]);
         EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 9);
@@ -957,7 +916,7 @@ TEST_F(DmcDualMotorTest, notAMasterHasNoSlaveSetting) {
 }
 
 // Firmware without 0x2403 has no dual motor support either.
-TEST_F(DmcDualMotorTest, noDualMotorConfigurationHasNoSlaveSetting) {
+TEST_F(DmcDualMotorTest, noDualMotorConfigurationIsReadAlone) {
     connectToDmcNodeAnswering(
         VeRawCanMsg{.canId = 0x581,
                     .length = 8,
@@ -965,7 +924,6 @@ TEST_F(DmcDualMotorTest, noDualMotorConfigurationHasNoSlaveSetting) {
 
     EXPECT_EQ(nodes[0].connected, veTrue);
     EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 0);
-    EXPECT_EQ(veItemByUid(nodes[0].device->root, "SlaveNodeId"), nullptr);
 
     nodes[0].device->driver->readRoutine(&nodes[0]);
     EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 9);
@@ -1002,54 +960,31 @@ TEST_F(DmcDualMotorTest, disconnectedBeforeDualMotorConfiguration) {
     }
 }
 
-// A configured slave that is connected as a drive of its own would be counted
-// twice, so it is left out for as long as it is one.
-TEST_F(DmcDualMotorTest, ignoresASlaveThatIsItsOwnDevice) {
+// A master at node 127 has no node 128 to be its slave. That is a
+// configuration mistake, so it is read as a single drive: its own values, and
+// no slave reads.
+TEST_F(DmcDualMotorTest, masterAtTheLastNodeIsReadAlone) {
+    Device *device;
+    std::vector<VeRawCanMsg> queue;
+
+    dmcNodeId = 127;
     connectToDmcNode(DMC_DUAL_MOTOR_MASTER);
-    setSlaveNodeId(2);
+    ASSERT_EQ(nodes[126].connected, veTrue);
+    device = nodes[126].device;
+    this->canMsgSentLog.clear();
 
-    nodes[1].connected = veTrue;
-    for (int cycle = 0; cycle < 2; cycle++) {
-        nodes[0].device->driver->readRoutine(&nodes[0]);
-        EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 9);
-        dropPendingRequests();
-    }
-
-    nodes[1].connected = veFalse;
-    probeCycle(veTrue);
-    readCombinedCycle();
-    EXPECT_FLOAT_EQ(nodes[0].device->current->variant.value.Float, 28.2F);
-}
-
-// Until localsettings has answered, the slave configured is not known, so the
-// master is read alone.
-TEST_F(DmcDualMotorTest, waitsForTheSetting) {
-    connectToDmcNode(DMC_DUAL_MOTOR_MASTER);
-
-    nodes[0].device->driver->readRoutine(&nodes[0]);
+    nodes[126].device->driver->readRoutine(&nodes[126]);
     EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 9);
-}
+    pushMasterReadings(queue, 127);
+    drainQueue(queue);
 
-TEST_F(DmcDualMotorTest, ignoresItsOwnNodeId) {
-    connectToDmcNode(DMC_DUAL_MOTOR_MASTER);
-    setSlaveNodeId(1);
-
-    nodes[0].device->driver->readRoutine(&nodes[0]);
-    EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 9);
-}
-
-// The setting declares 0 to 127, but nothing guarantees localsettings holds to
-// that, and the value becomes a CAN identifier.
-TEST_F(DmcDualMotorTest, ignoresAnOutOfRangeSlaveNodeId) {
-    connectToDmcNode(DMC_DUAL_MOTOR_MASTER);
-
-    setSlaveNodeId(-1);
-    nodes[0].device->driver->readRoutine(&nodes[0]);
-    EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 9);
-
-    setSlaveNodeId(128);
-    nodes[0].device->driver->readRoutine(&nodes[0]);
-    EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 18);
+    EXPECT_EQ(this->canMsgSentLog.size(), 8);
+    EXPECT_EQ(nodes[126].connected, veTrue);
+    EXPECT_FLOAT_EQ(device->current->variant.value.Float, 13.3F);
+    EXPECT_EQ(device->power->variant.value.SN32, 688);
+    EXPECT_FLOAT_EQ(device->motorTorque->variant.value.Float, 20.0F);
+    EXPECT_EQ(device->motorTemperature->variant.value.SN16, 30);
+    EXPECT_EQ(device->controllerTemperature->variant.value.SN16, 28);
 }
 
 // Half the current, power and torque would read as the whole drive, so they
@@ -1059,22 +994,13 @@ TEST_F(DmcDualMotorTest, ignoresAnOutOfRangeSlaveNodeId) {
 // missing are not published again when it returns.
 TEST_F(DmcDualMotorTest, slaveMissing) {
     Device *device;
-    std::vector<VeRawCanMsg> queue;
 
     connectToDmcNode(DMC_DUAL_MOTOR_MASTER);
-    setSlaveNodeId(2);
     device = nodes[0].device;
-    probeCycle(veTrue);
     readCombinedCycle();
     EXPECT_FLOAT_EQ(device->current->variant.value.Float, 28.2F);
 
-    // The master answers, the slave does not.
-    nodes[0].device->driver->readRoutine(&nodes[0]);
-    EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 15);
-    pushMasterReadings(queue);
-    drainQueue(queue);
-    timeOutPendingRequests();
-
+    slaveMissingCycle();
     EXPECT_EQ(nodes[0].connected, veTrue);
     EXPECT_FALSE(isValid(device->current));
     EXPECT_FALSE(isValid(device->power));
@@ -1116,6 +1042,19 @@ TEST_F(DmcDualMotorTest, slaveMissing) {
     EXPECT_EQ(injectPlatformNotification_fake.call_count, 1);
 }
 
+// A master is expected to have a slave, so one that is absent from the start
+// is announced on the first cycle.
+TEST_F(DmcDualMotorTest, slaveMissingFromTheStart) {
+    connectToDmcNode(DMC_DUAL_MOTOR_MASTER);
+
+    slaveMissingCycle();
+    EXPECT_FALSE(isValid(nodes[0].device->current));
+    pltGetCount1ms_fake.return_val += NOTIFICATION_INJECTION_DELAY_MS;
+    processPendingNotifications();
+    EXPECT_EQ(injectPlatformNotification_fake.call_count, 1);
+    EXPECT_STREQ(lastTitle, "Slave controller not responding");
+}
+
 // A slave that answers but refuses a read loses that cycle: the drive's shared
 // values are invalid, and nothing is announced, as a refusal that repeats
 // would otherwise raise a notification on every other cycle.
@@ -1124,9 +1063,7 @@ TEST_F(DmcDualMotorTest, slaveRefusesARead) {
     std::vector<VeRawCanMsg> queue;
 
     connectToDmcNode(DMC_DUAL_MOTOR_MASTER);
-    setSlaveNodeId(2);
     device = nodes[0].device;
-    probeCycle(veTrue);
 
     for (int cycle = 0; cycle < 3; cycle++) {
         nodes[0].device->driver->readRoutine(&nodes[0]);
@@ -1163,8 +1100,6 @@ TEST_F(DmcDualMotorTest, slaveRefusesARead) {
 // sees, and names the slave.
 TEST_F(DmcDualMotorTest, slaveFault) {
     connectToDmcNode(DMC_DUAL_MOTOR_MASTER);
-    setSlaveNodeId(2);
-    probeCycle(veTrue);
 
     readCombinedCycle(13, 2);
     EXPECT_EQ(injectPlatformNotification_fake.call_count, 1);
@@ -1178,12 +1113,41 @@ TEST_F(DmcDualMotorTest, slaveFault) {
     EXPECT_EQ(injectPlatformNotification_fake.call_count, 1);
 }
 
+// The fault code and subcode are only paired when both were read in the same
+// cycle. If the slave's 0x3840 fails, the code from an earlier cycle would be
+// paired with this cycle's subcode and announce a fault that does not exist.
+TEST_F(DmcDualMotorTest, slaveFaultCodeReadFails) {
+    std::vector<VeRawCanMsg> queue;
+
+    connectToDmcNode(DMC_DUAL_MOTOR_MASTER);
+    readCombinedCycle(13, 2);
+    EXPECT_EQ(injectPlatformNotification_fake.call_count, 1);
+
+    // 0x3840 aborted, 0x3841 answers 0: no F13 S0.
+    nodes[0].device->driver->readRoutine(&nodes[0]);
+    EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 15);
+    pushMasterReadings(queue);
+    pushSlaveReadings(queue, 0, 0);
+    queue[12] = response(2, 0x80, 0x3840, 0x06020000);
+    drainQueue(queue);
+    pltGetCount1ms_fake.return_val += NOTIFICATION_INJECTION_DELAY_MS;
+    processPendingNotifications();
+    EXPECT_EQ(injectPlatformNotification_fake.call_count, 1);
+
+    // Read in full again: F13 S2 is still standing and not repeated, and a
+    // change of subcode is still reported.
+    probeCycle(veTrue);
+    readCombinedCycle(13, 2);
+    EXPECT_EQ(injectPlatformNotification_fake.call_count, 1);
+    readCombinedCycle(13, 3);
+    EXPECT_EQ(injectPlatformNotification_fake.call_count, 2);
+    EXPECT_STREQ(lastTitle, "Accelerator more than 50% at power up (F13 S3)");
+}
+
 // The master losing its connection takes the drive with it, as for a single
 // controller, and the slave's reads still queued are dropped.
 TEST_F(DmcDualMotorTest, masterMissing) {
     connectToDmcNode(DMC_DUAL_MOTOR_MASTER);
-    setSlaveNodeId(2);
-    probeCycle(veTrue);
 
     nodes[0].device->driver->readRoutine(&nodes[0]);
     EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 15);
@@ -1202,8 +1166,6 @@ TEST_F(DmcDualMotorTest, masterLostMidCycle) {
     std::vector<VeRawCanMsg> queue;
 
     connectToDmcNode(DMC_DUAL_MOTOR_MASTER);
-    setSlaveNodeId(2);
-    probeCycle(veTrue);
 
     nodes[0].device->driver->readRoutine(&nodes[0]);
     EXPECT_EQ(listCount(canOpenState.pendingSdoRequests), 15);
@@ -1231,7 +1193,8 @@ TEST_F(DmcDualMotorTest, masterLostWhileProbing) {
     std::vector<VeRawCanMsg> queue;
 
     connectToDmcNode(DMC_DUAL_MOTOR_MASTER);
-    setSlaveNodeId(2);
+    slaveMissingCycle();
+    EXPECT_EQ(nodes[0].connected, veTrue);
 
     // The master's 0x3841 times out, then the probe answers.
     nodes[0].device->driver->readRoutine(&nodes[0]);
